@@ -197,21 +197,63 @@ export class Intercom implements INodeType {
 						if (operation === 'update') {
 							const updateBy = this.getNodeParameter('updateBy', 0) as string;
 							const value = this.getNodeParameter('value', i) as string;
-							if (updateBy === 'userId') {
-								body.user_id = value;
-							}
-							if (updateBy === 'id') {
-								body.id = value;
-							}
-							if (updateBy === 'email') {
-								body.email = value;
-							}
-						}
+							let contactId: string | undefined;
 
-						try {
-							responseData = await intercomApiRequest.call(this, '/contacts', 'POST', body);
-						} catch (error) {
-							throw new NodeApiError(this.getNode(), error as JsonObject);
+							if (updateBy === 'id') {
+								contactId = value;
+								body.id = value;
+							} else {
+								const lookupQuery: IDataObject = {};
+								if (updateBy === 'userId') {
+									lookupQuery.user_id = value;
+									body.user_id = value;
+								} else if (updateBy === 'email') {
+									lookupQuery.email = value;
+									body.email = value;
+								}
+
+								const lookupResponse = await intercomApiRequest.call(
+									this,
+									'/contacts',
+									'GET',
+									{},
+									lookupQuery,
+								);
+								const contacts = lookupResponse?.contacts as IDataObject[] | undefined;
+								if (!contacts?.length || typeof contacts[0].id !== 'string') {
+									throw new NodeOperationError(
+										this.getNode(),
+										'Matching contact not found for update',
+										{ itemIndex: i },
+									);
+								}
+								contactId = contacts[0].id as string;
+							}
+
+							if (!contactId) {
+								throw new NodeOperationError(
+									this.getNode(),
+									'Unable to resolve contact ID for update',
+									{ itemIndex: i },
+								);
+							}
+
+							try {
+								responseData = await intercomApiRequest.call(
+									this,
+									`/contacts/${contactId}`,
+									'PUT',
+									body,
+								);
+							} catch (error) {
+								throw new NodeApiError(this.getNode(), error as JsonObject);
+							}
+						} else {
+							try {
+								responseData = await intercomApiRequest.call(this, '/contacts', 'POST', body);
+							} catch (error) {
+								throw new NodeApiError(this.getNode(), error as JsonObject);
+							}
 						}
 					}
 					if (operation === 'get') {
